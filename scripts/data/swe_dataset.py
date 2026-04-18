@@ -3,8 +3,9 @@ import json
 import os
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from datasets import load_dataset
-from verl.utils.hdfs_io import copy, makedirs
 
 import rllm
 from rllm.agents.system_prompts import SWE_SYSTEM_PROMPT, SWE_USER_PROMPT
@@ -26,6 +27,13 @@ def main():
     parser = argparse.ArgumentParser(description="Generate trajectories using specified environment and policy.")
     parser.add_argument("--local_dir", default=os.path.join(RLLM_DIR, "data/swe"))
     parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument(
+        "--datasets",
+        nargs="*",
+        default=None,
+        metavar="HF_DATASET_ID",
+        help=f"Hugging Face dataset ids to export (default: all). Choices include: {', '.join(SWE_DATASETS)}",
+    )
 
     args = parser.parse_args()
 
@@ -33,6 +41,14 @@ def main():
     os.makedirs(local_dir, exist_ok=True)
 
     hdfs_dir = args.hdfs_dir
+
+    if args.datasets:
+        unknown = [d for d in args.datasets if d not in SWE_DATASETS]
+        if unknown:
+            raise SystemExit(f"Unknown dataset(s) {unknown}. Valid ids: {SWE_DATASETS}")
+        datasets_to_run = args.datasets
+    else:
+        datasets_to_run = SWE_DATASETS
 
     def make_map_fn():
         def process_fn(row):
@@ -50,7 +66,7 @@ def main():
 
     process_fn = make_map_fn()
 
-    for dataset_name in SWE_DATASETS:
+    for dataset_name in datasets_to_run:
         print(f"Processing dataset: {dataset_name}")
         try:
             # Load the dataset dictionary (which contains splits like 'train' or 'test')
@@ -74,17 +90,28 @@ def main():
 
         print(f"Using '{split_name}' split for {dataset_name}")
 
-        # Process the data from the identified split
-        processed_data = [process_fn(row) for row in split_data]
-
-        # Create DataFrame and save to a single parquet file
-        df = pd.DataFrame(processed_data)
         output_filepath = os.path.join(local_dir, f"{output_name_base}.parquet")
-        df.to_parquet(output_filepath)
-        print(f"Saved {len(df)} records from '{split_name}' split to {output_filepath}")
+        n_total = len(split_data)
+        batch_size = int(os.environ.get("SWE_DATASET_BATCH_SIZE", "32"))
+        writer: pq.ParquetWriter | None = None
+        for start in range(0, n_total, batch_size):
+            end = min(start + batch_size, n_total)
+            chunk = split_data[start:end]
+            processed_batch = [process_fn(row) for row in chunk]
+            table = pa.Table.from_pandas(pd.DataFrame(processed_batch), preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(output_filepath, table.schema)
+            writer.write_table(table)
+            if (start // batch_size) % 20 == 0 and start > 0:
+                print(f"  wrote rows {start}-{end} / {n_total}")
+        if writer is not None:
+            writer.close()
+        print(f"Saved {n_total} records from '{split_name}' split to {output_filepath}")
 
-        # Copy to HDFS if needed
+        # Copy to HDFS if needed (requires optional verl dependency)
         if hdfs_dir is not None:
+            from verl.utils.hdfs_io import copy, makedirs
+
             hdfs_filepath = os.path.join(hdfs_dir, f"{output_name_base}.parquet")
             # Ensure HDFS directory exists before copying
             # Assuming makedirs handles potential race conditions or existing dirs
