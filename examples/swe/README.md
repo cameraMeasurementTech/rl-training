@@ -173,10 +173,12 @@ To train DeepSWE-Preview, we suggest deploying a Kubernetes (K8) cluster on AWS/
 
 To run Kubernetes locally, we suggest installing [`kind`](https://kind.sigs.k8s.io/) and launching it with `kind create cluster`. However, please do note that this is not sufficient to launch a full training run.
 
-We provide the exact scripts to replicate our training curves in the DeepSWE-Preview blog post. It requires at least 64 GPUs and launches 512 Docker containers in parallel.
+We provide the exact scripts to replicate our training curves in the DeepSWE-Preview blog post. The multi-node recipe requires at least 64 GPUs and launches 512 Docker containers in parallel. For **one machine with eight GPUs**, use `train_deepswe_32b_1x8gpu.sh` (see [DEEPSWE_RL_TRAINING.md](DEEPSWE_RL_TRAINING.md)).
 ```bash
 cd rllm/examples/swe
-bash deepswe_32b.sh
+bash train_deepswe_32b.sh
+# or, single node × 8 GPUs:
+bash train_deepswe_32b_1x8gpu.sh
 ```
 
 ## 🔬 5. DeepSWE-Preview Reproduction Guide
