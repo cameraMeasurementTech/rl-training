@@ -13,6 +13,11 @@ from rllm.agents.system_prompts import SWE_SYSTEM_PROMPT, SWE_USER_PROMPT
 # Get the directory for rLLM repo (rllm.__file__)
 RLLM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(rllm.__file__)))
 
+def _json_safe_dict(d: dict) -> dict:
+    """Recursively convert row values to JSON-serializable Python types for Parquet."""
+    return json.loads(json.dumps(d, default=str))
+
+
 SWE_DATASETS = [
     "R2E-Gym/R2E-Gym-Subset",
     "R2E-Gym/R2E-Gym-Lite",
@@ -51,15 +56,19 @@ def main():
         datasets_to_run = SWE_DATASETS
 
     def make_map_fn():
-        def process_fn(row):
+        def process_fn(row, row_index: int):
             row_dict = dict(row)
             problem_statement = row_dict.get("problem_statement", "")
+            # verl RLHFDataset expects extra_info to be a dict (uses .get("index")),
+            # not a JSON string. rLLM init_envs_and_agents also accepts dicts here.
+            extra_info = _json_safe_dict(row_dict)
+            extra_info["index"] = row_index
             return {
                 "data_source": "swe",
                 "prompt": [{"role": "system", "content": SWE_SYSTEM_PROMPT}, {"role": "user", "content": SWE_USER_PROMPT.format(problem_statement=problem_statement)}],
                 "ability": "swe",
                 "reward_model": {"style": "rule", "ground_truth": ""},
-                "extra_info": json.dumps(row_dict),
+                "extra_info": extra_info,
             }
 
         return process_fn
@@ -96,8 +105,10 @@ def main():
         writer: pq.ParquetWriter | None = None
         for start in range(0, n_total, batch_size):
             end = min(start + batch_size, n_total)
-            chunk = split_data[start:end]
-            processed_batch = [process_fn(row) for row in chunk]
+            # Integer indexing returns one full example as a dict. Iterating a
+            # sliced Dataset can yield column names (strings) on some datasets
+            # versions, which breaks dict(row) with ValueError.
+            processed_batch = [process_fn(split_data[i], i) for i in range(start, end)]
             table = pa.Table.from_pandas(pd.DataFrame(processed_batch), preserve_index=False)
             if writer is None:
                 writer = pq.ParquetWriter(output_filepath, table.schema)

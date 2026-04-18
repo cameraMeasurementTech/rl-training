@@ -29,6 +29,8 @@ class Step(_StepBase):
     chat_completions: list[dict[str, Any]] = Field(default_factory=list)
 
     observation: Any = None
+    # Observation returned by the env after this step's action (multi-turn agents).
+    next_observation: Any | None = None
     thought: str = ""
     # action: inherited from _StepBase
     model_response: str = ""
@@ -95,6 +97,7 @@ class Step(_StepBase):
             "routing_matrices": self.routing_matrices,
             "chat_completions": _serialize_value(self.chat_completions),
             "observation": self.observation,
+            "next_observation": self.next_observation,
             "thought": self.thought,
             "action": self.action.action if isinstance(self.action, Action) else self.action,
             "model_response": self.model_response,
@@ -118,6 +121,7 @@ class Step(_StepBase):
             routing_matrices=data.get("routing_matrices"),
             chat_completions=data["chat_completions"],
             observation=data["observation"],
+            next_observation=data.get("next_observation"),
             thought=data["thought"],
             action=data["action"],
             model_response=data["model_response"],

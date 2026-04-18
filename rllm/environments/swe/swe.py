@@ -164,9 +164,8 @@ class SWEEnv(BaseEnv):
         """Create an environment instance from JSON configuration.
 
         Args:
-            extra_info: Dictionary containing configuration parameters.
-                       The entire dict will be used as 'entry', and any keys
-                       matching __init__ parameters will be extracted and passed.
+            extra_info: Task row plus optional SWEEnv kwargs (often merged from
+                ``rllm.env.env_args``) and dataloader metadata (e.g. ``index``).
 
         Returns:
             Initialized SWEEnv instance
@@ -177,12 +176,14 @@ class SWEEnv(BaseEnv):
             extra_info = json.loads(extra_info)
 
         sig = inspect.signature(SWEEnv.__init__)
-        init_params = {}
-        for param_name, param in sig.parameters.items():
-            if param_name == "self":
+        ctor_names = {name for name in sig.parameters if name != "self"}
+        # Do not pass trainer/env kwargs or verl row metadata into R2E ``EnvArgs(ds=...)``.
+        row_reserved = (ctor_names - {"entry"}) | frozenset({"index"})
+        init_params: dict = {}
+        for name in ctor_names:
+            if name == "entry":
                 continue
-            if param_name in extra_info:
-                init_params[param_name] = extra_info[param_name]
-            # else if param has default value, use the default value
-        init_params["entry"] = extra_info
+            if name in extra_info:
+                init_params[name] = extra_info[name]
+        init_params["entry"] = {k: v for k, v in extra_info.items() if k not in row_reserved}
         return SWEEnv(**init_params)

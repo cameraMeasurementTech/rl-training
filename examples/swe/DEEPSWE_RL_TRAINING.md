@@ -79,7 +79,7 @@ Match **PyTorch, CUDA, vLLM, and flash-attn** wheels to your driver and GPU arch
 Before a full run, decide:
 
 - How many **Ray nodes** (`trainer.nnodes`) and **GPUs per node** (`trainer.n_gpus_per_node`) you actually have, and whether that supports **`tensor_model_parallel_size=8`** as written (needs **≤** `n_gpus_per_node` on each Ray node that runs the vLLM worker group).
-- Whether **SWEEnv** will use **Docker** or **Kubernetes**; at DeepSWE scale, **Kubernetes** is the expected backend, but **Docker** on a single strong workstation is a common dev path.
+- Whether **SWEEnv** will use **Docker** or **Kubernetes**; at DeepSWE scale, **Kubernetes** is the expected backend, but **Docker** on a single strong workstation is a common dev path. **`SWEEnv` defaults to `backend=kubernetes` in code** — on a box without in-cluster or `~/.kube/config`, R2E-Gym fails with `Invalid kube-config file` / `Service host/port is not set`. The bundled `train_deepswe_32b*.sh` scripts set **`+rllm.env.env_args.backend=docker`** (leading **`+`** is required so Hydra can add the key under struct `env_args`) for local Docker; on a real cluster use **`+rllm.env.env_args.backend=kubernetes`** and ensure kubeconfig (or in-cluster credentials) is available to every worker.
 - **Multi-node only:** whether every node sees the same **shared filesystem** for Parquet paths and checkpoints (or you replicate artifacts). **Single-node:** local paths are enough.
 
 You will need **`trainer.nnodes=1`** for one physical machine (see [`train_deepswe_32b_1x8gpu.sh`](train_deepswe_32b_1x8gpu.sh)). For multiple hosts, set `trainer.nnodes` to the number of machines and **edit Hydra overrides** so `actor_rollout_ref.rollout.tensor_model_parallel_size`, `actor_rollout_ref.actor.ulysses_sequence_parallel_size`, FSDP micro-batches, and related fields match your cluster.
@@ -315,7 +315,7 @@ bash train_deepswe_32b_1x8gpu.sh
 **Multi-node / 64-GPU** reproduction (original DeepSWE scale):
 
 ```bash
-bash train_deepswe_32b.sh
+bash ./examples/swe/train_deepswe_32b.sh
 ```
 
 Some older docs refer to `deepswe_32b.sh`; the files in this tree are **`train_deepswe_32b_1x8gpu.sh`** and **`train_deepswe_32b.sh`**.
@@ -337,7 +337,7 @@ Before expecting a stable run, review and adjust at least:
 - `actor_rollout_ref.rollout.tensor_model_parallel_size`
 - `actor_rollout_ref.actor.ulysses_sequence_parallel_size`
 - `actor_rollout_ref.actor.fsdp_config.*_offload`, `ppo_micro_batch_size_per_gpu`, `rollout.gpu_memory_utilization`
-- `rllm.rllm.agent.trajectory_timeout` and Docker/K8s capacity
+- `rllm.agent.trajectory_timeout` and Docker/K8s capacity
 - `data.train_files` / `data.val_files` if not under default `RLLM_DIR/data/swe/`
 
 ### 8.4 How long training runs (steps, epochs, validation)

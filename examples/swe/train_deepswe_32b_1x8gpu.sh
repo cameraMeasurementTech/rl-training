@@ -5,6 +5,10 @@
 
 set -x
 
+# vLLM → Triton needs <Python.h> when JIT-compiling CUDA helpers. If you see
+# "Python.h: No such file or directory", install dev headers, e.g.:
+#   sudo apt-get install -y python3.12-dev build-essential   # match `python3 --version`
+
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
@@ -45,6 +49,7 @@ python3 -m rllm.trainer.verl.train_agent_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
+    actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=4096 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode="async" \
     actor_rollout_ref.rollout.enforce_eager=False \
@@ -68,8 +73,9 @@ python3 -m rllm.trainer.verl.train_agent_ppo \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
     rllm.env.name=swe \
+    +rllm.env.env_args.backend=docker \
     rllm.agent.name=sweagent \
     rllm.agent.max_steps=50 \
     rllm.agent.overlong_filter=True \
-    rllm.rllm.agent.trajectory_timeout=5400 \
+    rllm.agent.trajectory_timeout=5400 \
     trainer.total_epochs=1000
