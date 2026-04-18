@@ -340,6 +340,29 @@ Before expecting a stable run, review and adjust at least:
 - `rllm.rllm.agent.trajectory_timeout` and Docker/K8s capacity
 - `data.train_files` / `data.val_files` if not under default `RLLM_DIR/data/swe/`
 
+### 8.4 How long training runs (steps, epochs, validation)
+
+Training length is controlled by **verl’s `RayPPOTrainer`**, which sets `total_training_steps` as follows (see `verl/trainer/ppo/ray_trainer.py` in your environment):
+
+- **Default:** `len(train_dataloader) * trainer.total_epochs` (one “step” here is one **PPO optimizer update** after a train batch of rollouts).
+- **Override:** if **`trainer.total_training_steps`** is set to a positive integer, that value **replaces** the product above and training **stops** once `global_steps` reaches it (see the loop in [`rllm/trainer/verl/agent_ppo_trainer.py`](../../rllm/trainer/verl/agent_ppo_trainer.py)).
+
+**Practical recipe for “short first run, then scale up”:**
+
+| Hydra key | Effect |
+|-----------|--------|
+| **`trainer.total_training_steps=50`** (example) | Hard cap on **PPO updates** — best knob for a **quick smoke** run regardless of dataset size. |
+| **`trainer.total_epochs=1`** (or small) | Fewer full passes over the train parquet; total steps still scale with `len(train_dataloader)` unless you also set `total_training_steps`. |
+| **`data.train_batch_size`** | Larger batch ⇒ **fewer** dataloader batches per epoch (faster wall-clock per epoch, different RL statistics). |
+| **`trainer.test_freq=1`** | Run **validation** every PPO step — useful to watch reward, but **very expensive** for SWE (Docker/K8s + rollouts). Try `2`, `5`, or `10` first. |
+| **`trainer.save_freq=1`** | Save a checkpoint every step — use a small number while debugging, then increase. |
+| **`trainer.val_before_train=True`** | Run validation **once** before the first update (default in many verl configs; DeepSWE scripts set **`False`**). Turn on for an immediate baseline. |
+| **`trainer.val_only=True`** | Only run validation, then exit (no PPO updates) — good for **eval-only** checks. |
+
+**Note:** `rllm.agent.max_steps` is the **maximum turns per SWE trajectory** (agent–env interaction), **not** the number of PPO training steps.
+
+There is **no built-in “stop when validation reward plateaus”** early stopping in this path; use short **`total_training_steps`**, inspect W&B / console metrics, then **resume** with `trainer.resume_mode` / `trainer.resume_from_path` (verl checkpointing) for a longer second phase if quality looks promising.
+
 ---
 
 ## 9. Quick reference: end-to-end command sequence
